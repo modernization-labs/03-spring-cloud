@@ -20,7 +20,9 @@ public class JavaeeApiProbeTest {
         Map<String, String> expected = new LinkedHashMap<>();
         expected.put("javax.json.Json", "javaee-api");
         expected.put("javax.json.bind.Jsonb", "javaee-api");
-        expected.put("javax.ws.rs.core.Response", "jsr311-api");
+        // Step 8 (Finchley): the old jsr311-api (JAX-RS 1.1) that Edgware's ribbon/jersey stack
+        // dragged is gone from the tree, so javax.ws.rs.core.Response now resolves to javaee-api-8.0.
+        expected.put("javax.ws.rs.core.Response", "javaee-api");
         expected.put("javax.validation.Validation", "validation-api");
         expected.put("javax.persistence.EnumType", "javaee-api");
         expected.put("javax.enterprise.inject.spi.CDI", "javaee-api");

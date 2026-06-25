@@ -19,7 +19,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>1.5.17.RELEASE</version>
+        <version>2.0.9.RELEASE</version>
         <relativePath/>
     </parent>
 
@@ -30,23 +30,20 @@
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
 
-        <!-- Spring Cloud Edgware release train (SR4).
-             Resolves spring-cloud-commons / spring-cloud-context to 1.3.4.RELEASE and
-             the spring-cloud-netflix line to 1.4.x. The explicitly pinned netflix-core
-             and netflix-hystrix stay at 1.4.4 as requested; BOM-managed netflix
-             transitives (ribbon/archaius starters) resolve to 1.4.5, a minor,
-             expected skew that builds cleanly ("same stack, not same tree").
-             NOTE: the target asked for spring-cloud-context 1.1.7, but in the Edgware
-             train spring-cloud-context shares its version with spring-cloud-commons
-             (1.3.x), so 1.1.7 (a Camden/Dalston-era version) does not exist for Edgware.
-             SR4 is the closest coherent choice; context resolves to 1.3.4.RELEASE. -->
-        <spring-cloud.version>Edgware.SR4</spring-cloud.version>
+        <spring-cloud.version>Finchley.SR4</spring-cloud.version>
 
         <!-- Promoted transitive override: bump the whole embedded Tomcat to 8.5.34
              (the parent ships 8.5.23). Done via the parent's version property so ALL
              tomcat-embed-* artifacts move together and stay runnable; tomcat-embed-core
              therefore appears as 8.5.34 in the tree. -->
         <tomcat.version>8.5.34</tomcat.version>
+        
+        <!-- Step 2: align the log4j2 trio. The Boot 1.5 parent pins log4j2.version to 2.7,
+             but tika-app drags log4j-slf4j2-impl:2.20.0, leaving log4j-core/api at the
+             Log4Shell-era 2.7. Lift core/api to 2.20.0 so the trio is coherent and the 2.7
+             (CVE-2021-44228) jars drop out. Logback remains the live backend (the slf4j2
+             binding is inert under slf4j-api 1.7) — see LoggingBackendProbeTest. -->
+        <log4j2.version>2.20.0</log4j2.version>
     </properties>
 
     <dependencyManagement>
@@ -70,6 +67,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.logging.log4j</groupId>
+                    <artifactId>log4j-to-slf4j</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -89,19 +92,16 @@
         <dependency>
             <groupId>org.springframework.ws</groupId>
             <artifactId>spring-ws-core</artifactId>
-            <version>2.4.3.RELEASE</version>
         </dependency>
 
         <!-- Spring AMQP / RabbitMQ -->
         <dependency>
             <groupId>org.springframework.amqp</groupId>
             <artifactId>spring-rabbit</artifactId>
-            <version>1.7.11.RELEASE</version>
         </dependency>
         <dependency>
             <groupId>com.rabbitmq</groupId>
             <artifactId>amqp-client</artifactId>
-            <version>4.8.3</version>
         </dependency>
         <dependency>
             <groupId>com.rabbitmq</groupId>
@@ -125,17 +125,14 @@
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-openfeign</artifactId>
-            <version>1.4.6.RELEASE</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
-            <version>1.4.4.RELEASE</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-netflix-core</artifactId>
-            <version>1.4.4.RELEASE</version>
         </dependency>
         <dependency>
             <groupId>io.fabric8</groupId>
@@ -147,7 +144,11 @@
         <dependency>
             <groupId>de.codecentric</groupId>
             <artifactId>spring-boot-admin-starter-client</artifactId>
-            <version>1.5.7</version>
+            <!-- Step 8 (Boot 2.0): Admin 1.5.x is built for Boot 1.5 — its
+                 SpringBootAdminClientEnabledCondition calls RelaxedPropertyResolver, which Boot 2.0
+                 deleted (NoClassDefFoundError at context init). Admin is version-locked to the Boot
+                 generation, so it moves to its 2.0 line alongside the parent. -->
+            <version>2.0.6</version>
         </dependency>
 
         <!-- IBM MQ JMS -->
@@ -179,6 +180,32 @@
             <groupId>com.lowagie</groupId>
             <artifactId>itext</artifactId>
             <version>2.1.7</version>
+            <exclusions>
+                <!-- Step 4: drop the ancient, fully-shadowed iText jdk14 BouncyCastle jars.
+                     The bcpkix probe proved every class they could serve loads elsewhere
+                     (provider/util/S-MIME from tika-app's shaded 1.76; tsp from bcpkix:1.56),
+                     so these are dead weight that only inflate the SCA surface. -->
+                <exclusion>
+                    <groupId>bouncycastle</groupId>
+                    <artifactId>bcprov-jdk14</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>bouncycastle</groupId>
+                    <artifactId>bcmail-jdk14</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bctsp-jdk14</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcprov-jdk14</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcmail-jdk14</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.bouncycastle</groupId>
@@ -215,7 +242,6 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
-            <version>1.7.25</version>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -230,17 +256,24 @@
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
-            <version>3.3.2</version>
+        </dependency>
+        <!-- Step 8 (Boot 2.0): Boot 2.0's BOM pins commons-io to 2.5, which now sorts ahead of
+             tika-app's shaded copy on the classpath and wins. But Tika 2.9.0 calls
+             CloseShieldInputStream.wrap(...), a static factory added in commons-io 2.9 -> the 2.5
+             jar throws NoSuchMethodError at parse time. Pin commons-io to the version Tika 2.9.0
+             expects so the live winner carries the method. -->
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>2.13.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
             <artifactId>httpclient</artifactId>
-            <version>4.5.6</version>
         </dependency>
         <dependency>
             <groupId>org.apache.tomcat.embed</groupId>
             <artifactId>tomcat-embed-core</artifactId>
-            <version>8.5.34</version>
         </dependency>
 
         <!-- ========================= PROVIDED ======================== -->
@@ -269,7 +302,6 @@
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <version>1.4.197</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -277,6 +309,14 @@
             <artifactId>gatling-charts-highcharts</artifactId>
             <version>2.3.0</version>
             <scope>test</scope>
+        </dependency>
+
+        <!-- =========================== RUNTIME ========================== -->
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-properties-migrator</artifactId>
+            <scope>runtime</scope>   <!-- transitional: logs 1.5→2.0 property renames; removed before done -->
         </dependency>
 
     </dependencies>

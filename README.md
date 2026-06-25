@@ -538,3 +538,12 @@ Expected: **BUILD SUCCESS** and those four files present. `AddRequest` exposes
 `augend`/`addend` and `AddResponse` exposes `sum` — proof the plugin parsed our schema
 and `xjc` produced the bindings. For a clean check, `mvn clean compile` regenerates them
 from scratch and then compiles them alongside the hand-written sources.
+
+# Modernization
+
+The step-by-step modernization journey — taking the stack above from **Boot 1.5.22 / Spring
+Cloud Edgware** up through the coupled **Boot 2.0 + Finchley** jump (and onward) as a multi-hop,
+individually gated sequence — lives in its own document:
+
+➡️ **[MODERNIZATION_BOOT_2.0.md](MODERNIZATION_BOOT_2.0.md)** — steps 1-8, each reversible and gated by the
+characterization net.
