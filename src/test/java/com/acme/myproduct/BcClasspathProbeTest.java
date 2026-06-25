@@ -2,10 +2,10 @@ package com.acme.myproduct;
 
 import java.security.Provider;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class BcClasspathProbeTest {
 
@@ -21,8 +21,8 @@ public class BcClasspathProbeTest {
         // The winning BouncyCastleProvider is the copy shaded inside tika-app, NOT any
         // standalone bcprov-* jar in the dependency tree. If this assertion ever fails,
         // the classpath ordering changed and a different BouncyCastle edition now wins.
-        assertTrue("expected BouncyCastleProvider to load from tika-app, but was: " + location,
-                location.contains("tika-app"));
+        assertTrue(location.contains("tika-app"),
+                "expected BouncyCastleProvider to load from tika-app, but was: " + location);
         assertEquals(1.76, provider.getVersion(), 0.0001);
     }
 }

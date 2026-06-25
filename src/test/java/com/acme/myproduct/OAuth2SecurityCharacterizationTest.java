@@ -1,16 +1,14 @@
 package com.acme.myproduct;
 
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.junit4.SpringRunner;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Characterizes the security wall around "/". The endpoint stays protected across the Boot 1.5 -> 2.0
@@ -28,7 +26,6 @@ import static org.junit.Assert.assertEquals;
  * Deterministic credentials are pinned via spring.security.user.* (renamed from security.user.* in 2.0)
  * so the assertion does not depend on the random password printed at startup.
  */
-@RunWith(SpringRunner.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {
         // Step 8 (Boot 2.0): the deterministic-user keys moved security.user.* -> spring.security.user.*

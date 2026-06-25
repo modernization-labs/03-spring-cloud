@@ -7,13 +7,13 @@ import java.security.interfaces.RSAPublicKey;
 
 import org.bouncycastle.openssl.PEMParser;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.springframework.security.jwt.Jwt;
 import org.springframework.security.jwt.JwtHelper;
 import org.springframework.security.jwt.crypto.sign.RsaSigner;
 import org.springframework.security.jwt.crypto.sign.RsaVerifier;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Step 3 characterization test. Unlike the bcpkix *probe* (which pins WHICH jar serves the

@@ -1,8 +1,8 @@
 package com.acme.myproduct;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Companion to {@link BcClasspathProbeTest}. That probe pinned exactly ONE class
@@ -73,7 +73,7 @@ public class BcPkixClasspathProbeTest {
 
     private static void assertLoadsFrom(String fqcn, String jarMarker) {
         String location = locationOf(fqcn);
-        assertTrue("expected " + fqcn + " to load from a jar containing '" + jarMarker
-                + "', but was: " + location, location.contains(jarMarker));
+        assertTrue(location.contains(jarMarker), "expected " + fqcn + " to load from a jar containing '" + jarMarker
+                + "', but was: " + location);
     }
 }

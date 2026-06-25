@@ -8,10 +8,10 @@ import javax.xml.bind.Marshaller;
 import javax.xml.bind.Unmarshaller;
 
 import com.acme.myproduct.ws.arithmetics.AddRequest;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Characterizes the WSDL/JAXB path: the maven-jaxb2-plugin generates JAXB-annotated sources
@@ -36,9 +36,9 @@ public class JaxbArithmeticsCharacterizationTest {
         marshaller.marshal(request, writer);
         String xml = writer.toString();
 
-        assertTrue("expected target namespace in: " + xml, xml.contains(NS));
-        assertTrue("expected <augend>2 in: " + xml, xml.contains(">2</"));
-        assertTrue("expected <addend>3 in: " + xml, xml.contains(">3</"));
+        assertTrue(xml.contains(NS), "expected target namespace in: " + xml);
+        assertTrue(xml.contains(">2</"), "expected <augend>2 in: " + xml);
+        assertTrue(xml.contains(">3</"), "expected <addend>3 in: " + xml);
     }
 
     @Test

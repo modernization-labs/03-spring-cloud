@@ -19,24 +19,18 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>2.0.9.RELEASE</version>
+        <version>2.5.15</version>
         <relativePath/>
     </parent>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <java.version>1.8</java.version>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
+        <java.version>11</java.version>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
 
-        <spring-cloud.version>Finchley.SR4</spring-cloud.version>
-
-        <!-- Promoted transitive override: bump the whole embedded Tomcat to 8.5.34
-             (the parent ships 8.5.23). Done via the parent's version property so ALL
-             tomcat-embed-* artifacts move together and stay runnable; tomcat-embed-core
-             therefore appears as 8.5.34 in the tree. -->
-        <tomcat.version>8.5.34</tomcat.version>
+        <spring-cloud.version>2020.0.6</spring-cloud.version>
         
         <!-- Step 2: align the log4j2 trio. The Boot 1.5 parent pins log4j2.version to 2.7,
              but tika-app drags log4j-slf4j2-impl:2.20.0, leaving log4j-core/api at the
@@ -125,15 +119,26 @@
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-openfeign</artifactId>
+            <exclusions>
+                <!-- Step 13: feign-hystrix is a direct child of THIS starter (not of the netflix-hystrix
+                    starter) and re-drags com.netflix.hystrix:hystrix-core. Excluding it scrubs the last
+                    feign.hystrix.* / com.netflix.hystrix.* surface so Step 14 (2.4/2020.0, where Hystrix
+                    leaves the train) is a pure bump. The migrated characterization imports
+                    org.springframework.cloud.openfeign.FallbackFactory, which lives in openfeign-core and
+                    is unaffected. -->
+                <exclusion>
+                    <groupId>io.github.openfeign</groupId>
+                    <artifactId>feign-hystrix</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
+
+        <!-- step 13 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+            <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-netflix-core</artifactId>
-        </dependency>
+        
         <dependency>
             <groupId>io.fabric8</groupId>
             <artifactId>spring-cloud-kubernetes-discovery</artifactId>
@@ -246,13 +251,14 @@
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-collections4</artifactId>
-            <version>4.1</version>
         </dependency>
-        <dependency>
-            <groupId>org.springframework.data</groupId>
-            <artifactId>spring-data-commons-core</artifactId>
-            <version>1.4.1.RELEASE</version>
-        </dependency>
+        <!-- step 15
+            <dependency>
+                <groupId>org.springframework.data</groupId>
+                <artifactId>spring-data-commons-core</artifactId>
+                <version>1.4.1.RELEASE</version>
+            </dependency>
+        -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
@@ -332,7 +338,7 @@
             <plugin>
                 <groupId>org.jvnet.jaxb2.maven2</groupId>
                 <artifactId>maven-jaxb2-plugin</artifactId>
-                <version>0.13.2</version>
+                <version>0.15.2</version>
                 <executions>
                     <execution>
                         <id>generate-arithmetics</id>

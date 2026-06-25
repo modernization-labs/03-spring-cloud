@@ -1,11 +1,11 @@
 package com.acme.myproduct;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.slf4j.ILoggerFactory;
 import org.slf4j.LoggerFactory;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Characterizes which SLF4J backend actually wins — a sibling to {@link BcClasspathProbeTest}.
@@ -40,7 +40,7 @@ public class LoggingBackendProbeTest {
         // The winner is log4j2's binding, and the org.slf4j.LoggerFactory that selected it is the
         // SLF4J 2.x copy shaded inside tika-app — not the declared slf4j-api:1.7.25.
         assertEquals("org.apache.logging.slf4j.Log4jLoggerFactory", factoryName);
-        assertTrue("expected org.slf4j.LoggerFactory to load from tika-app's shaded copy, but was: "
-                + slf4jLocation, slf4jLocation.contains("tika-app"));
+        assertTrue(slf4jLocation.contains("tika-app"), "expected org.slf4j.LoggerFactory to load from tika-app's shaded copy, but was: "
+                + slf4jLocation);
     }
 }
