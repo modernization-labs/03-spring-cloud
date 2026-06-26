@@ -2027,3 +2027,254 @@ re-architecture, deferred as candidate Step 17b). The platform now sits on **Boo
   Cloud 2021.0 + Java 17**, the full net green, leaving the Boot 3 + jakarta jump (where
   `spring-security-jwt` and the `javax → jakarta` rename are taken together) as *purely* a namespace
   migration on a modern JDK.
+
+---
+
+# Modernization step 18 — the JDK capstone: Java 11 → 17 on Boot 2.7, the gate moves onto 17
+
+> **Status: DRAFT (planned, not yet executed).** This is the **last hop of the target** and the one §4/§7
+> sequenced every Boot minor to make possible *in isolation*: the single `11 → 17` JDK move, taken on the
+> landed **Boot `2.7.18` + Spring Cloud `2021.0.9` (Jubilee)** plateau **with no Boot parent change, no train
+> change, no namespace change** (`javax` stands) — only `<java.version>`/`maven.compiler.*` `11 → 17` and the
+> JEP-403 reflective-access fallout that flip exposes. The net stays the grader: **21/21 must remain green.**
+> When this hop lands, the platform reaches the target end-state — **Boot 2.7.18 + Spring Cloud 2021.0.9 +
+> Java 17, full net green** — leaving the Boot 3 + jakarta jump that follows as *purely* a namespace
+> migration on an already-modern JDK (§9).
+
+## Guiding principle — the one move every prior hop was sequenced to isolate
+
+Every Boot hop of this target (14 → 17) held `<java.version>` at **11 by decision, not by inability** — 2.5.5+
+permitted Java 17, 2.7 fully supports it, and each hop's "JDK held" done-criterion recorded the refusal on
+purpose (§7). The whole point of that discipline arrives now: because the JDK was a **single fixed value
+across every Boot hop**, the `11 → 17` migration is a **lone variable** — nothing else moves with it, so
+whatever the gate reds is attributable to the JDK and nothing else. This is the inverse of Step 8's "Finding
+0" (a premature modern JDK on an old Spring): here the Spring is deliberately *new enough* (Boot 2.7 / Spring
+Framework 5.3, which officially supports Java 17) and the JDK is the *last* thing to move, so the capstone is
+graded against a stack that is otherwise entirely known-good.
+
+## The structural inversion — single JDK again, but this time it is 17
+
+Steps 12a, 13, and 17a each ran on a **single JDK (11)** because they carried no OpenRewrite recipe and no
+version bump; Steps 14–17 ran a **JDK-17 detour** for the OpenRewrite runner, then switched `JAVA_HOME` *back
+to 11* for the gate. Step 18 carries no OpenRewrite recipe either (no Boot/train coordinate moves — see
+below), so it too runs on a **single JDK — but that JDK is now 17.** The detour becomes the destination: for
+the first time in the journey the **gate itself runs on Java 17**, and there is no "switch back to 11"
+because 11 is exactly what this hop retires.
+
+> **Finding 0, inverted.** Every prior hop warned "confirm `java -version` reports **11** before diagnosing."
+> Step 18 inverts the warning: confirm the gate reports **17**. A green seen while `JAVA_HOME` still points at
+> 11 is the *baseline*, not the hop — it proves nothing about Java 17. The diagnostic question flips from "is
+> this a JDK-17 artefact?" (prior hops) to "is this the JDK-17 reality the capstone exists to surface?"
+
+## What JEP 403 actually changes — the warnings we have ignored for eight steps become errors
+
+Since Step 10 banked Java 11, every gate has emitted **illegal-reflective-access WARNINGs** that this
+document repeatedly ruled "expected … and **not findings**" (Step 12a, 13, 17a all say so verbatim). JEP 403
+("Strongly Encapsulate JDK Internals", Java 17) is precisely the event that **turns those same warnings into
+errors**:
+
+- **Java 11** defaulted to `--illegal-access=permit` — reflective access into JDK internals *warned* and
+  proceeded.
+- **Java 16** (JEP 396) flipped the default to `deny`.
+- **Java 17** (JEP 403) **removed the `--illegal-access` switch entirely** — there is no global escape hatch
+  left; denied access now throws `InaccessibleObjectException` and the only remedy is **targeted
+  `--add-opens` / `--add-exports`** per module/package.
+
+So the Step-18 worklist is not a mystery to discover — it is, to first approximation, **the warning list the
+prior gates printed and we agreed to ignore.** Each of those reflective touches is a candidate JEP-403 error
+now. The live pom names exactly which libraries do the touching:
+
+| Surface (live in this pom) | Why it reflects into JDK internals | Where it bites first |
+|---|---|---|
+| **`maven-jaxb2-plugin:0.15.2`** (XJC codegen, `generate-sources`) | XJC + the JAXB RI reflect into `com.sun.xml.*`/`java.xml` internals; the plugin runs XJC **in the Maven JVM**, so this is the **build**, not the tests. | `mvn generate-sources`/`test`/`package` — the **first JDK-17 run of the codegen** (the OpenRewrite detours never triggered it). |
+| **CGLIB / Spring proxies, Mockito inline** | Spring's CGLIB proxying and Mockito's mock maker reflect into `java.base/java.lang*`. | `@SpringBootTest` context init / any mocked test in the Surefire JVM. |
+| **`bcprov-jdk15on:1.57`** (JWT signing path) | An old BC provider; security-provider registration / reflective key access. | `JwtBcPkixCharacterizationTest`. |
+| **`tika-app:2.9.0`** (shaded POI 5.2.3 / PDFBox 2.0.29) | POI/PDFBox reflect for font/metadata access. | `HelloControllerTest` (Tika parse path). |
+| **iText `2.1.7`** (`com.lowagie:itext`) | Ancient PDF lib; reflective font/security access. | whichever test exercises the PDF path, if any. |
+| **`springdoc-openapi-ui:1.8.0`** | Spring MVC handler scanning via reflection/CGLIB. | `OpenApiDocsCharacterizationTest`. |
+
+> **Discipline note (§6).** This table is a list of **predictions to verify by the gate**, *not* findings —
+> the same rule the prior target proved four times over (its predicted "highest-likelihood blocker" was wrong
+> on every hop). The Java-11 warning list makes these *better-grounded* predictions than usual, but each
+> earns the word "finding" only when a JDK-17 stack trace names it. It is entirely possible a surface that
+> *warned* on 11 is one Spring 5.3 already shields on 17.
+
+## The two JVMs that need opening — the non-obvious part of this hop
+
+A naive read says "add `--add-opens` to the tests and gate." That is half the surface. The capstone touches
+**two distinct JVMs**, and they are opened by **two different mechanisms**:
+
+1. **The Surefire JVM (the tests).** CGLIB/Mockito/BC/Tika/springdoc reflect here. Opened via the Surefire
+   **`argLine`** (`--add-opens …` appended, taking care not to clobber the Boot parent's `@{argLine}` jacoco
+   hook if present).
+2. **The Maven JVM (the XJC codegen).** `maven-jaxb2-plugin:0.15.2` runs XJC **in-process in the Maven JVM**,
+   not in Surefire — so a Surefire `argLine` does **nothing** for it. If XJC reds under JDK 17, the opens
+   belong in **`.mvn/jvm.config`** (or `MAVEN_OPTS`), which apply to the Maven process itself. This is the
+   single most likely place an *un*-predicted red appears, precisely because it is *not* where the instinct
+   reaches first.
+
+So the hop's real artefacts are not "a property edit" but **the minimal set of `--add-opens`/`--add-exports`
+across these two JVMs that the gate actually demands** — added surgically, one opens per stack trace, never
+speculatively. (§ "Surgical changes": every added opens must trace to a specific `InaccessibleObjectException`
+the gate printed, not to a precautionary list copied from the internet.)
+
+## The mechanical layer — no OpenRewrite recipe; three property lines by hand
+
+Unlike Steps 14–17, Step 18 moves **no Boot or train coordinate**, so the `rewrite-spring`
+`UpgradeSpringBoot_*` advisor does **not** apply. OpenRewrite does ship a generic
+`org.openrewrite.java.migrate.UpgradeJavaVersion` (in `rewrite-migrate-java`), but the mechanical change it
+would make is **three property lines** (`java.version`, `maven.compiler.source`, `maven.compiler.target`) —
+trivially hand-applied, so per simplicity-first the JDK bump is **hand-applied** and OpenRewrite is not
+introduced for it. The *real* work of the hop — the JEP-403 opens — is not a recipe's output anyway; it is
+gate-driven and hand-applied as findings.
+
+## What Step 18 changes — the JDK property, plus only the opens the gate demands
+
+| Layer | Change | Applied by | Guarded by |
+|---|---|---|---|
+| 4. pom — JDK | `<java.version>` **`11` → `17`**, and `maven.compiler.source`/`maven.compiler.target` **`11` → `17`** | by hand | net green **on JDK 17** |
+| 4/build — test-JVM opens (only as the gate reds) | append `--add-opens`/`--add-exports` to Surefire **`argLine`** for each `InaccessibleObjectException` in a test JVM | by hand, **as a finding** | the specific test that red goes green; no speculative opens |
+| build — Maven-JVM opens (only if XJC reds) | add `.mvn/jvm.config` with the `--add-opens`/`--add-exports` XJC needs | by hand, **as a finding** | `generate-sources` completes; the WSDL→JAXB classes generate |
+| — parent | **no change** — `2.7.18` stands | — | — |
+| — train | **no change** — `2021.0.9` (Jubilee) stands | — | — |
+| — namespace | **no change** — `javax` stands (the rename is the *next* target) | — | — |
+| 4. pom — satellites (only if the gate demands) | bump any lib whose JDK-17 break has no opens-only fix (last-resort, e.g. an itext/jaxb2-plugin version) | by hand, **as a finding** | the red test goes green; recorded with its trace |
+
+No production code; no test added or migrated (the net rides through unchanged at 21).
+
+## Step 18 — exact actions (proposed)
+
+From the project root. **The JDK choreography is the inverse of Steps 14–17: baseline on 11, then move *to*
+17 and stay there for the gate.**
+
+### 0–1. Branch and last-ever Java-11 baseline
+
+```powershell
+git switch -c step18/java-17-capstone
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-11.0.30'; $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+java -version    # expect: 11.0.x  (the OUTGOING JDK — baseline only)
+mvn -q test      # existing net GREEN first on 2.7.18/2021.0/Java 11 — confirm "Tests run: 21", Failures/Errors 0
+```
+
+This is the **last green this project records on Java 11**. Note the illegal-reflective-access WARNs it
+prints: that list is the Step-18 watchlist (§ "What JEP 403 actually changes").
+
+### 2. Flip the JDK property — three lines
+
+```xml
+<java.version>17</java.version>
+<maven.compiler.source>17</maven.compiler.source>
+<maven.compiler.target>17</maven.compiler.target>
+```
+
+Parent (`2.7.18`), train (`2021.0.9`), and every other coordinate are **untouched**.
+
+### 3. Move JAVA_HOME to 17 — and keep it there (this is the gate now)
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+java -version    # expect: 17.0.x  (the INCOMING JDK — and the GATE JDK; no switch-back)
+```
+
+### 4. Gate — on JDK 17 — and add opens only as it reds
+
+```powershell
+mvn clean test      # read the run count AND the error class: Tests run: 21, Failures: 0, Errors: 0
+mvn clean package   # full repackage incl. generate-sources (XJC under JDK 17), 21/21 green
+```
+
+Work the reds **one stack trace at a time**, classifying each by *which JVM* threw it:
+
+- An `InaccessibleObjectException` from a **test** (`…SpringBootTest`, Mockito, BC, Tika, springdoc) → append
+  the named `--add-opens`/`--add-exports` to **Surefire `argLine`**, re-gate.
+- An `InaccessibleObjectException` (or XJC failure) during **`generate-sources`** → add the opens to
+  **`.mvn/jvm.config`**, re-gate.
+- Only if a surface has **no opens-only remedy** does a version bump become the finding — recorded with its
+  trace, never applied speculatively.
+
+Read the **run count first** (`Tests run: 21`): a context-load failure under JDK 17 reports `Errors`, not a
+silently-empty suite, so `Tests run: 21` *and* `Failures/Errors: 0` is the bar.
+
+## Predictions to verify by the gate (not findings — §6 discipline)
+
+Each earns the word "finding" only if a JDK-17 stack trace names it on the gate:
+
+1. **XJC codegen is the first and hardest hit — in the Maven JVM, not Surefire.** `maven-jaxb2-plugin:0.15.2`
+   runs XJC in-process; the OpenRewrite detours never triggered `generate-sources`, so this is its **first
+   JDK-17 exposure**. *Most likely place an un-predicted red appears; if it reds, the fix is `.mvn/jvm.config`
+   opens (`java.xml`/`java.base`), not a Surefire `argLine` — read which JVM threw before reaching for the
+   wrong file.* A last-resort finding would be bumping the jaxb2 plugin or switching to a JDK-17-clean XJC.
+2. **Spring 5.3 / CGLIB may already be clean on 17.** Boot 2.7 / Spring Framework 5.3 officially supports Java
+   17 and ships objenesis-based proxying that avoids most `java.lang` opens. *Predicted green for plain
+   `@SpringBootTest` context init — a CGLIB `InaccessibleObjectException` here would be the surprise, not the
+   default.*
+3. **Mockito inline mock maker may want `java.base/java.lang`.** If any test mocks, the inline maker can
+   request that opens on 17. *Verify per the test that reds; `--add-opens java.base/java.lang=ALL-UNNAMED` is
+   the canonical remedy, added to `argLine` as a finding.*
+4. **`bcprov-jdk15on:1.57` is pre-JDK-17.** BC 1.57 predates 17; provider registration / reflective key
+   access could trip JEP 403. *`JwtBcPkixCharacterizationTest` is the oracle — predicted green (the signing
+   path is largely self-contained), a finding to read if BC throws, with a BC version bump as the last-resort
+   remedy.*
+5. **Tika's shaded POI/PDFBox reflect for metadata.** `HelloControllerTest` (the Tika parse path) is the
+   oracle. *Predicted green on 17 (POI 5.2.3 / PDFBox 2.0.29 are recent enough), a finding to read if a
+   shaded reflective access throws.*
+6. **springdoc 1.8.0 handler scanning.** `OpenApiDocsCharacterizationTest` is the oracle; springdoc 1.8.0 is
+   the last Boot-2.x line and is JDK-17-tested. *Predicted green.*
+7. **The `302` wall and Actuator contract are JDK-agnostic.** `OAuth2SecurityCharacterizationTest` (the
+   Step-17a starter-security wall) and `ActuatorEndpointCharacterizationTest` assert HTTP contracts that do
+   not depend on the JDK. *Predicted green — a red here would point at a transitive reflective failure during
+   context init, not the assertion itself.*
+8. **commons-io / log4j-to-slf4j re-pins are unaffected by the JDK.** The Step 8 pins are version facts, not
+   JDK facts. *Predicted green — `LoggingBackendProbeTest` and the Tika test stay as Step 8 set them.*
+
+## Step 18 — done criteria
+
+1. `mvn clean package` **under JDK 17** → BUILD SUCCESS, `mvn test` green **`Tests run: 21`**, Failures 0,
+   Errors 0; `<java.version>` is **`17`** (with `maven.compiler.source`/`target` `17`), parent still
+   **`2.7.18`**, `spring-cloud.version` still **`2021.0.9`**, namespace still **`javax`**.
+2. The gate **runs on Java 17** — there is no switch-back to 11; Java 11 is retired by this hop. The last
+   Java-11 baseline (action 0–1) is the final green this project records on 11.
+3. Every `--add-opens`/`--add-exports` added is **traceable to a specific `InaccessibleObjectException`** the
+   gate printed, placed in the **correct JVM's** config (Surefire `argLine` for tests, `.mvn/jvm.config` for
+   XJC), and recorded as a finding with its trace. **No speculative opens.** If the gate reds nothing, no
+   opens are added — that is itself the finding (Spring 5.3 already shields the surfaces).
+4. Any last-resort satellite/plugin version bump (only where no opens-only remedy exists) is recorded as a
+   finding with its stack trace — not applied speculatively. No production code added; the net is unchanged
+   at 21 (Jupiter throughout — no vintage engine; Step 16's standing correction holds).
+5. The target end-state is reached and recorded: **Boot 2.7.18 + Spring Cloud 2021.0.9 (Jubilee) + Java 17,
+   net 21/21 green** — the full climb of the Boot 2.x line finished on a modern JDK, on the last stable
+   `javax` plateau.
+
+## Rollback
+
+```powershell
+git restore --staged --worktree .
+git switch main
+git branch -D step18/java-17-capstone
+# and re-point JAVA_HOME back to 11 if other work resumes on the prior plateau
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-11.0.30'; $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+```
+
+---
+
+## Target complete — toward the next target: Boot 3.0 + `javax → jakarta`
+
+Step 18 lands the target's end-state: **Boot 2.7.18 + Spring Cloud 2021.0.9 (Jubilee) + Java 17, net 21/21
+green.** Every axis but the namespace is now at the top of its supported line, and — by the §4/§7 decoupling
+that placed Java 17 *here* rather than fused into Boot 3 — the next jump is left as narrow as the methodology
+can make it:
+
+- **Java 17 is already banked**, so the Boot 3.0 jump (Java 17 is its hard floor) does **not** carry a JDK
+  migration coupled to the namespace rename — the precise coupling §4 paid this whole target to avoid.
+- **The EOL surfaces that the rename would otherwise have dragged into the same step are mostly retired
+  already**: Hystrix → Resilience4j (Step 13), springfox → springdoc (Step 16), `spring-security-oauth2` →
+  `spring-boot-starter-security` (Step 17a). **One known EOL module remains by design** —
+  `spring-security-jwt:1.0.9` — whose live JWT-signing consumer (`JwtBcPkixCharacterizationTest`) makes it a
+  *signing-path re-architecture* (Nimbus JOSE via `spring-security-oauth2-jose`), not a coordinate swap; it
+  is the deferred **Step 17b**, foldable into the Boot 3 JWT work.
+
+So the next target reduces to what §4/§9 promised: **`Boot 2.7 + Java 17` → `Boot 3.0 + jakarta`** as
+*purely* a `javax → jakarta` namespace migration (plus the one deferred JWT re-architecture), graded by the
+same net — the Spring Framework 6 / `jakarta.*` rename taken on a stack where the JDK question is already
+settled and the Netflix/springfox/OAuth2 EOL cliffs are already behind us. That is the payoff this target
+was built to hand off.
