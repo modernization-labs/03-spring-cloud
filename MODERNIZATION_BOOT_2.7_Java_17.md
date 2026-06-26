@@ -1748,3 +1748,282 @@ JDK is at the top of the 2.x line, the train is on its final stop (2021.0, Jubil
   across BC/itext/the jaxb2 plugin/tika's shaded jars) — the end-state of this target: **Boot 2.7.x + Spring
   Cloud 2021.0 + Java 17**, the full net green, leaving the Boot 3 + jakarta jump as *purely* a namespace
   migration.
+
+---
+
+# Modernization step 17a — retire the EOL `spring-security-oauth2` module, keep the `302` wall green
+
+> **Status: DRAFT (planned, not yet executed).** This is the §10.4 / §7 OAuth2 re-architecture, taken as
+> its **own separately-gated sub-hop on the landed Boot 2.7 plateau** — the deferral *out* of Step 17,
+> resolved there. It is the Step 12a → 13 pattern run a second time: a graded oracle already exists
+> (`OAuth2SecurityCharacterizationTest`, banked at Step 8), so **no net-widen is owed first** — Step 17a is
+> the move that oracle was built to grade. It runs **with no Boot parent change, no train change, no JDK
+> change, no namespace change** (`2.7.18` / `2021.0.9` / Java 11 / `javax` all stand) — only the EOL
+> security coordinate and the supported starter that replaces its silent role. The net stays the grader:
+> **21/21 must remain green.** The hop is landed **before** the Step 18 JDK capstone so the `11 → 17` move
+> stays a pure JDK hop with no EOL-OAuth2 reflective surface still in play.
+>
+> **Why this hop exists at all (the §9 payoff).** The only forcing function for retiring
+> `spring-security-oauth2` is **Boot 3 / jakarta**, where `spring-security-oauth2-autoconfigure` is gone.
+> Paying it *here*, on the green `javax` plateau, in isolation, is exactly what keeps the next target a
+> *pure* namespace migration — the same decoupling logic that put Java 17 (Step 18) on this plateau rather
+> than fused into Boot 3.
+
+## Guiding principle — the same restraint, but the surface is load-bearing, not inert
+
+Step 17's deferral note characterized the OAuth2 surface as "deps-only — the same shape as the Hystrix
+surface (Step 12a)." That framing is **half right and half stale**, and Step 17a's first duty is to correct
+it from the live tree before moving (the §6/§8 discipline; the same way Step 16 corrected the vintage
+narrative and Step 17 carried that correction forward):
+
+- **Right:** no `src` class imports `org.springframework.security.oauth.*`; there is **no**
+  `WebSecurityConfigurerAdapter`, no `SecurityFilterChain`, no `@EnableResourceServer` /
+  `@EnableAuthorizationServer`, no `SecurityConfig`. A full `src` grep for `org.springframework.security`
+  returns **only** the JWT test's four imports (below). So there is **no live OAuth2 wiring to rewrite** —
+  the `302 → /login` wall is **pure Spring Security _default_ autoconfig**, exactly as Step 8 recorded.
+- **Stale / wrong:** the claim that `spring-security-oauth2` is therefore inert "classpath weight" like the
+  Netflix jars. It is **not inert — it is load-bearing.** `dependency:tree` shows it is the **sole supplier**
+  of the Spring Security runtime that *produces* the wall (the §-below dependency fact). Remove it naively
+  and the wall it anchors disappears — the opposite of the Hystrix case, where removal changed nothing the
+  net saw.
+- **Also wrong:** the Step 17 note lumped `spring-security-jwt:1.0.9.RELEASE` in as "no live consumer in
+  src." It **has** one — `JwtBcPkixCharacterizationTest` (Step 3) imports
+  `org.springframework.security.jwt.{Jwt, JwtHelper, crypto.sign.RsaSigner, crypto.sign.RsaVerifier}` and
+  round-trips a real RSA-signed JWT through the live bcpkix path. `spring-security-jwt` is a **separate** EOL
+  module with its **own** live consumer and its **own** re-architecture (the JWT signing path), and it does
+  **not** supply `spring-security-web`/`-config`. It is therefore **out of scope for this hop** (§ "scope"
+  below).
+
+So Step 17a is not "delete dead weight." It is: **swap the EOL module that silently anchors the `302`
+contract for the supported, Boot-managed starter that anchors the same contract identically** — coordinates
+only, the wall byte-for-byte preserved, graded green throughout. The restraint posture of Step 13 holds:
+**no production code is added** (no `SecurityFilterChain`, no restored-`401` config); the test's three
+assertions do not change; what changes is the coordinate the Spring Security runtime resolves *from*.
+
+## The one non-obvious dependency fact this hop turns on (verified from the live tree)
+
+The pom carries **no `spring-boot-starter-security`**. `dependency:tree` on the current (Boot 2.7.18) pom
+shows the entire Spring Security runtime arrives **transitively through the EOL OAuth2 module**:
+
+```
++- org.springframework.security.oauth:spring-security-oauth2:jar:2.0.16.RELEASE:compile
+|  +- org.springframework.security:spring-security-core:jar:5.7.11:compile
+|  |  \- org.springframework.security:spring-security-crypto:jar:5.7.11:compile
+|  +- org.springframework.security:spring-security-config:jar:5.7.11:compile   <-- enables the autoconfig
+|  \- org.springframework.security:spring-security-web:jar:5.7.11:compile      <-- builds the filter chain
++- org.springframework.security:spring-security-jwt:jar:1.0.9.RELEASE:compile  <-- SEPARATE module, live consumer
+   \- org.springframework.security:spring-security-rsa:jar:1.0.12.RELEASE:compile
+```
+
+The consequence is load-bearing and is the whole reason this is a *re-architecture*, not a deletion:
+
+> **`spring-security-web` + `spring-security-config:5.7.11` are on the classpath _only_ because
+> `spring-security-oauth2` drags them.** They — not the OAuth2 module's own classes — are what trip Spring
+> Boot's `SecurityAutoConfiguration` / `UserDetailsServiceAutoConfiguration` into building the default
+> filter chain that returns `302 → /login`. **Deleting `spring-security-oauth2` alone removes Spring
+> Security entirely → no filter chain → `/` answers `200` unauthenticated → all three
+> `OAuth2SecurityCharacterizationTest` assertions flip.** To retire the EOL coordinate *and* keep the wall,
+> Step 17a must **re-supply the same Spring Security runtime from a supported source** before (or with) the
+> removal: add **`spring-boot-starter-security`** (Boot-managed, no `<version>`), which pulls the **same**
+> `spring-security-web`/`-config`/`-core:5.7.11` the OAuth2 module was pulling. The default autoconfig is
+> the identical code path, so the `302` contract is reproduced byte-for-byte.
+
+`spring-security-jwt`'s subtree (`spring-security-rsa:1.0.12` → bcpkix, exercised by the Step 3 test) is
+**untouched** — it supplies no web/config and has its own consumer, so it neither anchors the wall nor is
+disturbed by this swap.
+
+## Resolving the open question (raised in Step 17's deferral note, decided here with the tree in hand)
+
+The deferral note left two questions for "this sub-hop's own up-front analysis": **(a)** retire the EOL
+coordinates outright, and **(b)** keep the `302` contract or restore an API-style `401`. Decided:
+
+1. **Keep the `302` contract — do _not_ restore `401`.** Restoring the Boot-1.5-era Basic-auth `401`
+   challenge would require **adding production security config** — a `@Configuration` exposing a
+   `SecurityFilterChain` bean (the Boot 2.7 / Spring Security 5.7 component-style replacement for the
+   deprecated `WebSecurityConfigurerAdapter`) that enables `httpBasic` and disables `formLogin`. That is
+   exactly the speculative production surface Step 13 refused to manufacture: the app has no API client that
+   needs `401`, and inventing security config to change a challenge shape no consumer depends on is
+   manufactured scope, not characterized behaviour. **The `302` wall is the real, graded contract; it
+   stays.** `OAuth2SecurityCharacterizationTest`'s three assertions (`302` no-creds, `200` valid-creds,
+   `302` wrong-creds) are unchanged.
+2. **Retire `spring-security-oauth2` outright — but re-supply its Spring Security runtime, don't just
+   delete it.** Per the dependency fact above: remove the EOL coordinate, add `spring-boot-starter-security`
+   so the wall's anchor moves onto a supported, Boot-managed coordinate. Coordinates only; no production
+   code.
+
+This is safe to decide now (not deferred to Step 18) because the survivor is already present and
+version-aligned on the **current** plateau: `spring-boot-starter-security` is managed by the Boot 2.7.18
+BOM and resolves the **same `5.7.11`** Spring Security artifacts already on the tree — verified above, not
+predicted.
+
+## Scope — what this hop deliberately leaves alone (`spring-security-jwt`)
+
+`spring-security-jwt:1.0.9.RELEASE` is **also** an EOL spring-security-oauth-family module, but it is **not**
+this hop's target:
+
+- It has a **live consumer** (`JwtBcPkixCharacterizationTest`), so retiring it is **compiler-enforced
+  re-architecture** of the JWT signing path (Step 13's situation), not a coordinate swap — its successor is
+  Nimbus JOSE via `spring-security-oauth2-jose`, a different surface with a different oracle.
+- It **does not anchor the `302` wall** (supplies no web/config), so leaving it changes nothing
+  `OAuth2SecurityCharacterizationTest` grades.
+- Its only forcing function is, again, **Boot 3 / jakarta** — so it can ride the green 2.7 plateau and be
+  retired in its **own** gated sub-hop (a candidate **Step 17b**, or folded into the Boot 3 jump's JWT
+  work). Coupling it into Step 17a would fuse two unrelated EOL retirements — one a coordinate swap, one a
+  signing-path re-architecture — into a single gate, the precise coupling the methodology forbids.
+
+**Step 17a touches no JWT coordinate.** `JwtBcPkixCharacterizationTest` rides through unchanged as one of
+the 21 graders.
+
+## The JDK tension — single JDK, no detour (as Step 12a / 13)
+
+Step 17a carries **no OpenRewrite recipe** — no Boot or train version moves — so, like Step 12a and Step 13,
+there is **no JDK-17 detour**. The whole hop runs on a **single JDK: Java 11**, the working gate JDK held
+through Step 17. Confirm `java -version` reports `11` before diagnosing anything (Step 8 "Finding 0"); the
+Java 11 illegal-reflective-access *warnings* remain expected and are **not findings**. Java 17 stays the
+isolated Step 18 capstone.
+
+## What Step 17a changes — one EOL coordinate out, one supported starter in
+
+| Layer | Change | Applied by | Guarded by |
+|---|---|---|---|
+| 4. pom — remove | delete `org.springframework.security.oauth:spring-security-oauth2:2.0.16.RELEASE` | by hand | `dependency:tree` shows no `spring-security-oauth:*`; net stays 21/21 |
+| 4. pom — add | add `org.springframework.boot:spring-boot-starter-security` (**no `<version>`** — Boot 2.7.18 BOM-managed) | by hand | re-supplies `spring-security-web`/`-config`/`-core:5.7.11`; `302` wall reproduced identically |
+| — JWT | **no change** — `spring-security-jwt:1.0.9.RELEASE` kept (separate EOL module, live consumer, own re-arch) | — | `JwtBcPkixCharacterizationTest` rides through unchanged |
+| — contract | **no change** — keep the `302` wall; **no** `SecurityFilterChain` / restored-`401` production config | — | `OAuth2SecurityCharacterizationTest`'s three `302`/`200`/`302` assertions unchanged |
+
+No parent/train/JDK/namespace edit; no production code.
+
+## Step 17a — exact actions (proposed)
+
+From the project root, on **JDK 11** (no JDK-17 detour — no OpenRewrite recipe).
+
+### 0–1. Branch and baseline (JDK 11)
+
+```powershell
+git switch -c step17a/retire-spring-security-oauth2
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-11.0.30'; $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+java -version    # expect: 11.0.x
+mvn -q test      # existing net GREEN first on 2.7.18/2021.0/Java 11 — confirm "Tests run: 21", Failures/Errors 0
+```
+
+### 2. Confirm the dependency fact before moving (so the gate result is interpretable)
+
+```powershell
+mvn dependency:tree "-Dincludes=org.springframework.security*:*" | Select-String "security"
+#   expect: spring-security-web / -config / -core:5.7.11 hanging UNDER spring-security-oauth2:2.0.16.RELEASE,
+#           and spring-security-jwt:1.0.9.RELEASE -> spring-security-rsa:1.0.12 as a SEPARATE node.
+#   This is the proof that removing oauth2 WITHOUT adding starter-security would scrub web/config (the wall).
+```
+
+### 3. pom — swap the EOL module for the supported starter
+
+Remove the EOL OAuth2 dependency:
+
+```xml
+<!-- DELETE: the EOL module that silently anchored the 302 wall via its transitive web/config -->
+<dependency>
+    <groupId>org.springframework.security.oauth</groupId>
+    <artifactId>spring-security-oauth2</artifactId>
+    <version>2.0.16.RELEASE</version>
+</dependency>
+```
+
+Add the supported, Boot-managed security starter in its place (no version — BOM-managed):
+
+```xml
+<!-- Step 17a: re-supply the Spring Security runtime (web/config/core 5.7.11) from a SUPPORTED coordinate.
+     The EOL spring-security-oauth2 was the sole transitive source of these jars; the default autoconfig
+     they enable is what builds the 302 -> /login wall OAuth2SecurityCharacterizationTest pins. Swapping the
+     anchor onto the Boot-managed starter keeps that contract byte-identical while retiring the EOL module
+     ahead of the Boot 3/jakarta forcing function. spring-security-jwt is a SEPARATE EOL module (live
+     consumer: JwtBcPkixCharacterizationTest) and is intentionally NOT touched here. -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-security</artifactId>
+</dependency>
+```
+
+`spring-security-jwt` and its `spring-security-rsa`/bcpkix subtree are **left exactly as they are.**
+
+### 4. Verify the surface moved, then gate — on JDK 11
+
+```powershell
+mvn dependency:tree "-Dincludes=org.springframework.security*:*" | Select-String "security"
+#   expect: NO org.springframework.security.oauth:spring-security-oauth2,
+#           spring-security-web/-config/-core:5.7.11 now hanging under spring-boot-starter-security,
+#           spring-security-jwt:1.0.9.RELEASE -> spring-security-rsa:1.0.12 STILL present (untouched).
+
+mvn clean test      # -> Tests run: 21, Failures: 0, Errors: 0  -> BUILD SUCCESS
+mvn clean package   # full repackage, 21/21 green
+```
+
+Read the **run count** first (`Tests run: 21`): a `BUILD SUCCESS` with a shrunken count or any `Errors` is a
+context-load failure to diagnose, not a pass.
+
+## Predictions to verify by the gate (not findings — §6 discipline)
+
+Each earns the word "finding" only if a stack trace (or a changed run count) confirms it on the gate:
+
+1. **The `302` wall is reproduced identically.** `spring-boot-starter-security` brings the same
+   `spring-security-web`/`-config:5.7.11`, so the same default `SecurityAutoConfiguration` filter chain is
+   built. *Predicted green — `OAuth2SecurityCharacterizationTest`'s three assertions ride through unchanged.*
+   This is the **most likely place an _un_predicted red appears** (if the starter's autoconfig differs in any
+   defaulting from the bare-jars path), so read the trace before declaring done.
+2. **The deterministic user still resolves.** `UserDetailsServiceAutoConfiguration` honours
+   `spring.security.user.*` whenever `spring-security-config` is present — unchanged across the swap.
+   *Predicted green — the `200` valid-creds assertion holds.*
+3. **`JwtBcPkixCharacterizationTest` is unaffected.** `spring-security-jwt`/`-rsa`/bcpkix are untouched; the
+   RSA JWT round-trip path does not depend on the OAuth2 module. *Predicted green.*
+4. **springdoc / `OpenApiDocsCharacterizationTest` unchanged.** It already passes *with* Spring Security on
+   the classpath; the filter chain after the swap is byte-identical, so `/v3/api-docs` behaves as before.
+   *Predicted green.*
+5. **No transitive version drift.** Both the removed module and the added starter resolve Spring Security at
+   `5.7.11` (Boot 2.7.18 BOM). *Predicted green; confirm the tree still reads `5.7.11`.*
+6. **Spring Security 5.7's `WebSecurityConfigurerAdapter` deprecation stays inert.** The app has no security
+   config to deprecate (verified), and Step 17a adds none. *Predicted green — no deprecation surfaces because
+   there is nothing to deprecate.*
+
+## Step 17a — done criteria
+
+1. `mvn clean package` under **JDK 11** → BUILD SUCCESS, `mvn test` green **`Tests run: 21`**, Failures 0,
+   Errors 0; parent still **`2.7.18`**, `spring-cloud.version` still **`2021.0.9`**, `<java.version>` still
+   **`11`**, namespace still `javax`.
+2. `dependency:tree` shows **no `org.springframework.security.oauth:spring-security-oauth2`**;
+   `spring-security-web`/`-config`/`-core:5.7.11` now resolve under **`spring-boot-starter-security`**; and
+   `spring-security-jwt:1.0.9.RELEASE` → `spring-security-rsa:1.0.12` is **still present, untouched**.
+3. `OAuth2SecurityCharacterizationTest`'s three assertions are **unchanged** and green — the `302` wall held
+   across the coordinate swap. The EOL module retired; the contract did not move. **No `SecurityFilterChain`
+   / restored-`401` production config was added** (the §-above decision: keep `302`, no manufactured scope).
+4. **`spring-security-jwt` is deliberately out of scope** and recorded as such — a separate EOL module with
+   its own live consumer (`JwtBcPkixCharacterizationTest`) and its own deferred re-architecture (candidate
+   Step 17b / the Boot 3 JWT work).
+5. The other 18 tests stay exactly as Steps 8–17 left them; the net is JUnit 5 (Jupiter) throughout — no
+   vintage engine added or expected (Step 16's standing correction).
+6. The two stale claims in Step 17's deferral note are corrected on the record: `spring-security-oauth2` was
+   **load-bearing** (sole supplier of the wall's web/config), not inert; and `spring-security-jwt` **has** a
+   live consumer. Both corrections are grounded in `dependency:tree` + the `src` grep, not asserted.
+
+## Rollback
+
+```powershell
+git restore --staged --worktree .
+git switch main
+git branch -D step17a/retire-spring-security-oauth2
+```
+
+---
+
+## Toward Step 18 — the JDK capstone, on a fully-supported `javax` plateau
+
+With `spring-security-oauth2` retired onto the supported `spring-boot-starter-security` and the `302`
+contract held green, the last EOL coordinate that the Boot 3 / jakarta jump would otherwise have forced into
+the same step as the namespace rename is paid here, on the green 2.7 plateau, in isolation. One known EOL
+module remains by design — `spring-security-jwt` (its live JWT-signing consumer makes it a separate
+re-architecture, deferred as candidate Step 17b). The platform now sits on **Boot 2.7.18 + Spring Cloud
+2021.0.9 + Java 11**, net green at 21/21, with only the JDK below the top of the line:
+
+- **Step 18 — Java 11 → 17 on Boot 2.7.** The isolated JDK capstone (JEP 403 strong-encapsulation fallout
+  across BC/itext/the jaxb2 plugin/tika's shaded jars) — the end-state of this target: **Boot 2.7.x + Spring
+  Cloud 2021.0 + Java 17**, the full net green, leaving the Boot 3 + jakarta jump (where
+  `spring-security-jwt` and the `javax → jakarta` rename are taken together) as *purely* a namespace
+  migration on a modern JDK.

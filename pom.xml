@@ -103,12 +103,19 @@
             <version>1.1.1.RELEASE</version>
         </dependency>
 
-        <!-- Spring Security OAuth2 + JWT -->
-        <dependency>
-            <groupId>org.springframework.security.oauth</groupId>
-            <artifactId>spring-security-oauth2</artifactId>
-            <version>2.0.16.RELEASE</version>
-        </dependency>
+        <!-- Spring Security OAuth2 + JWT - step 17a deleted -->
+         <!-- DELETE: the EOL module that silently anchored the 302 wall via its transitive web/config -->
+          <!-- Step 17a: re-supply the Spring Security runtime (web/config/core 5.7.11) from a SUPPORTED coordinate.
+     The EOL spring-security-oauth2 was the sole transitive source of these jars; the default autoconfig
+     they enable is what builds the 302 -> /login wall OAuth2SecurityCharacterizationTest pins. Swapping the
+     anchor onto the Boot-managed starter keeps that contract byte-identical while retiring the EOL module
+     ahead of the Boot 3/jakarta forcing function. spring-security-jwt is a SEPARATE EOL module (live
+     consumer: JwtBcPkixCharacterizationTest) and is intentionally NOT touched here. -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+    
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-jwt</artifactId>
