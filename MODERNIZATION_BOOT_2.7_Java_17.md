@@ -1122,3 +1122,391 @@ target's **second-heaviest set-piece**:
 - **Step 18 — Java 11 → 17 on Boot 2.7.** The isolated JDK capstone (JEP 403 fallout) — the end-state of
   this target. The OAuth2 `302` re-architecture (§10.4) is slotted into whichever of 16–17 it least
   disturbs, gated by `OAuth2SecurityCharacterizationTest`.
+
+---
+
+# Modernization step 16 — the springfox cliff and the train's last move: Boot 2.5 → 2.6 + 2020.0 → 2021.0 (Jubilee), springfox → springdoc
+
+> **Status: DONE (executed, gate green — net 21/21).** Landed on **Boot `2.6.15` + Spring Cloud `2021.0.9`
+> (Jubilee) + `springdoc-openapi-ui 1.5.13` + Java 11**. This is the **third version hop** of the target and
+> its **second-heaviest set-piece** after the Netflix dismantling. It is a *coupled* hop by design (§7): three
+> moving parts landed on one gated branch — the **Boot parent** (`2.5.15 → 2.6.15`), the **Spring Cloud train**
+> taking its **last move of this target** (`2020.0.6 → 2021.0.9`, Jubilee — which serves Boot 2.6 **and**
+> 2.7), and the **springfox → `springdoc-openapi` re-architecture** forced because **springfox 2.7.0 dies on
+> Boot 2.6's `PathPatternParser`-default path matching**. Spring Framework moved **5.3 → 5.3** (same line),
+> **JDK stayed 11** (§7 — held to the Step 18 capstone), **namespace stayed `javax`.** The net was the
+> grader: the swagger surface was *uncharacterized*, so this hop first widened the net by one
+> (`OpenApiDocsCharacterizationTest`, green on the 2.5/springfox baseline) before migrating it, then crossed
+> to 2.6 — **net 20 → 21, green; `mvn clean test` and `mvn package` both BUILD SUCCESS; `dependency:tree`
+> shows no `io.springfox:*` and springdoc present.** No findings — the predictions below all held green
+> (springdoc served `/v3/api-docs` past the security wall with the same basic auth; the `info.env` flip did
+> not red the Actuator knot; fabric8 and Admin `2.0.6` survived the 2.6/2021.0 move).
+
+## Guiding principle — do not migrate a surface the net cannot see
+
+Every prior re-architecture in this journey was graded by a test that existed **before** the move: Step 13
+swapped the `FallbackFactory` import only because Step 12a had already pinned its contract green. The
+springfox surface has **no such oracle**. `SwaggerConfig` (`@EnableSwagger2` + a `Docket` scanning
+`com.acme.myproduct`) is a **live `src/main`, compile-scope** surface — verified in the pom and the class —
+**but a grep of `src/test` for `swagger`/`springfox`/`api-docs`/`openapi` returns nothing.** The net is
+blind to exactly the surface this hop re-architects. That is the §5 blind-spot condition that preceded the
+Netflix cliff, and the discipline is identical: **characterize before you change.**
+
+Because the chosen decomposition keeps the migration *coupled* with the 2.6 bump (not a separate Step 16a),
+the net-widening happens **inside this hop, on the 2.5 baseline, as its first action** — before any
+coordinate moves. The new test pins the *one load-bearing fact* a documentation surface owes the app: **the
+OpenAPI/Swagger descriptor is served and carries the app's configured API title.** It is written against the
+**2.5 springfox contract first** (`GET /v2/api-docs` with credentials → `200`, JSON body carrying the
+configured title `My Product API`), goes green on the baseline, and the migration then **deliberately flips
+its asserted path** `/v2/api-docs` → `/v3/api-docs` — a *predicted flip*, the net doing its job, exactly as
+Step 13's import swap was. The *behaviour* it asserts (a descriptor is served carrying `My Product API`) is
+invariant across the migration; the *coordinate* (`v2` → `v3`) is what springdoc changes, and the test
+records that as the migration's visible contract delta.
+
+> **Why the title, not the endpoint path.** The instinct is to assert the descriptor *names the app's real
+> endpoint* — but the only mapped path is `GET /` (`HelloController.index`), and asserting a body `contains`
+> `/` is vacuous. The configured title `My Product API` (set in `SwaggerConfig`'s `ApiInfo`/`OpenAPI.info`)
+> is the meaningful invariant: it proves the served descriptor is *our* configured one, not just any `200`,
+> and both springfox and springdoc emit it. *(Verified: this knot is green on the 2.5/springfox baseline —
+> `Tests run: 1, Failures: 0`.)*
+
+> **Why one assertion, not a full swagger schema diff.** Pinning the descriptor *exists and carries our
+> configured title* is the minimal knot that grades the migration honestly without manufacturing scope — the same
+> restraint Step 12a applied to the Hystrix contract. A byte-level schema characterization would pin
+> springfox-vs-springdoc serialization differences that are *expected* to change and tell us nothing about
+> whether the documentation surface survived.
+
+## The three set-pieces (and why they are coupled here, not split)
+
+1. **springfox 2.7.0 → `springdoc-openapi` (the re-architecture).** Springfox is abandoned and its
+   `springfox.documentation.spring.web` path provider throws on Boot 2.6's **`PathPatternParser`** default
+   (`management`/`mvc` path matching switched from `AntPathMatcher`). There is a known one-line escape hatch
+   (`spring.mvc.pathmatch.matching-strategy=ant_path_matcher`), and §10.3 **rejected it**: it keeps an
+   abandoned, soon-incompatible library limping rather than landing on the supported successor. So the move
+   is a real re-architecture — retire both springfox coordinates, add `org.springdoc:springdoc-openapi-ui`,
+   and rewrite `SwaggerConfig` from the springfox `Docket`/`@EnableSwagger2` idiom to the springdoc
+   `OpenAPI`-bean idiom. **Springdoc is _not_ BOM-managed** by Boot or the Spring Cloud train, so it carries
+   an **explicit `<version>`** (a springdoc 1.6.x line — the last major that targets Boot 2.x; springdoc 2.x
+   is Boot-3/jakarta only and is **out of scope** until the next target).
+2. **Train `2020.0.6 → 2021.0.x` (Jubilee) — the last train move of this target.** 2021.0 serves Boot 2.6
+   **and** 2.7, so once landed here it does **not** move again before the Step 18 capstone. The Resilience4j
+   circuit-breaker starter (Step 13, BOM-managed, no pin) and OpenFeign re-resolve against the 2021.0 BOM;
+   the fabric8 K8s discovery coordinate is the most likely consumer to notice — *prediction, not finding*.
+3. **`management.info.env.enabled` flips to `false` (Boot 2.6 default).** `/actuator/info` no longer exposes
+   `info.*` environment properties by default. `ActuatorEndpointCharacterizationTest` is the oracle; whether
+   it reds depends on what that test asserts about `/actuator/info` — *predicted to be inert if it only
+   asserts `/actuator/health`, a finding to read if it touches `info`.*
+
+> **Why coupled and not split (the decision on record).** The Netflix precedent (12a/13/14) would argue for
+> migrating springfox on the green 2.5 plateau *before* 2.6 removes its floor. This hop instead follows §7's
+> framing and keeps them together, accepting the coupling because — unlike Hystrix, whose removal was a
+> *train* event that forced a separate boundary crossing — springfox's break and its successor's arrival are
+> both **Boot-version events** that the same OpenRewrite/parent bump touches. The mitigation for the coupling
+> is the in-hop net-widen above: the migration is still graded by a test that went green on 2.5 first.
+
+## Boot 2.6's other default that bites springfox specifically — circular references
+
+Boot 2.6 also flips **`spring.main.allow-circular-references` to `false`** by default. Springfox's
+`documentationPluginsBootstrapper` is the canonical victim — it forms a bean cycle that 2.5 tolerated and
+2.6 refuses, throwing `BeanCurrentlyInCreationException` at context init. This is a **second, independent
+reason** the springfox surface cannot simply ride to 2.6, and it is why the escape-hatch property alone
+would not even suffice (it would also need `allow-circular-references=true`). The springdoc successor has no
+such cycle. *Prediction to verify at the gate — if a springfox cycle error appears while the migration is
+mid-flight, it confirms the migration is mandatory, not optional.*
+
+## The mechanical layer — OpenRewrite `UpgradeSpringBoot_2_6`, same JDK-17 detour
+
+As at Steps 14–15, the layer-1 advisor returns: `org.openrewrite.java.spring.boot2.UpgradeSpringBoot_2_6`,
+run **advisor-then-applier** under **JDK 17** (recipe runner only), then `JAVA_HOME` switched **back to 11**
+for the gate. The recipe owns the mechanical parent/property slice. The **springfox → springdoc rewrite is
+hand-applied** — OpenRewrite ships a springfox-to-springdoc recipe, but its coverage of a hand-written
+`Docket` config is partial; treat any recipe output as **advisory only** and hand-write `SwaggerConfig`, the
+pom coordinates, and the test flip, recording the result as a finding. The train property and any
+generation-locked satellite bump are hand-applied as before.
+
+> **Confirm the JDK before diagnosing anything (Step 8 "Finding 0").** The OpenRewrite run is the only
+> JDK-17 touch; the **gate runs on Java 11**. Java 17 is held to Step 18 by decision, not by inability — a
+> green recipe run under 17 is not licence to gate on 17.
+
+## What Step 16 changes — net-widen, parent, train, and the springfox surface
+
+| Layer | Change | Applied by | Guarded by |
+|---|---|---|---|
+| 1. New characterization test (net-widen, on 2.5 first) | add `OpenApiDocsCharacterizationTest` — a **Jupiter** `@SpringBootTest`(RANDOM_PORT) with basic auth, asserting the descriptor is served and carries the title `My Product API`; written to springfox `/v2/api-docs` on the 2.5 baseline | by hand | **green on 2.5 — verified** (net 20 → 21) **before** any coordinate moves |
+| 1. OpenRewrite (advisor→applier) | run `UpgradeSpringBoot_2_6` under JDK 17 — `dryRun` then `run`; accept only the mechanical parent/property slice | recipe, reviewed | diff read before `run`; gate re-runs on JDK 11 |
+| 2. train move (last of target) | `spring-cloud.version` `2020.0.6` → **`2021.0.x`** (Jubilee) | by hand | `dependency:tree` resolves; Resilience4j starter still BOM-managed (no pin) |
+| 4. pom — parent | `spring-boot-starter-parent` `2.5.15` → **`2.6.x`** | recipe or by hand | net green on JDK 11 |
+| 4. pom — remove springfox | delete `springfox-swagger2 2.7.0` **and** `springfox-swagger-ui 2.7.0` | by hand | `dependency:tree` shows no `io.springfox:*` |
+| 4. pom — add springdoc | add `org.springdoc:springdoc-openapi-ui` with **explicit `<version>`** (1.6.x — last Boot-2.x line) | by hand | resolves; not BOM-managed, so the pin is required and deliberate |
+| 3. src — rewrite `SwaggerConfig` | replace `@EnableSwagger2` + `Docket` with a springdoc `@Bean OpenAPI` carrying the same title/description/version | by hand | context init green; descriptor served at `/v3/api-docs` |
+| 1. test — flip the pinned path | in `OpenApiDocsCharacterizationTest`, change the asserted path `/v2/api-docs` → `/v3/api-docs`; the "carries `My Product API`" assertion is unchanged | by hand | **predicted flip** — the migration's visible contract delta, net back to 21 green |
+| 4. pom — satellites (only if the gate demands) | bump generation-locked libs the gate reds — `spring-boot-admin-starter-client 2.0.6` (§6) is now six minors behind | by hand, **as a finding** | `@SpringBootTest` context init green |
+
+No JDK change (`<java.version>` stays `11`), no namespace change (`javax`), no production behaviour change —
+the documented endpoints are identical; only the documentation *provider* and its descriptor path change.
+
+## Step 16 — exact actions (proposed)
+
+From the project root.
+
+### 0–1. Branch and baseline (JDK 11), then net-widen on the 2.5 plateau
+
+```powershell
+git switch -c step16/boot-2.6-jubilee-springdoc
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-11.0.30'; $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+java -version    # expect: 11.0.x
+mvn -q test      # existing net GREEN first on 2.5.15/2020.0/Java 11 — confirm "Tests run: 20", NOT 0
+```
+
+Add `src/test/java/com/acme/myproduct/OpenApiDocsCharacterizationTest.java` — written against the **current
+springfox** contract so it goes green on the 2.5 baseline **before** anything moves:
+
+```java
+package com.acme.myproduct;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.TestPropertySource;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * Characterizes the live API-documentation surface (SwaggerConfig): a descriptor is served and carries
+ * the configured title "My Product API". Written against springfox's /v2/api-docs on the Boot 2.5
+ * baseline; Step 16's migration to springdoc-openapi deliberately flips the asserted path to /v3/api-docs
+ * (a predicted flip) while the title assertion is invariant (both providers emit ApiInfo/OpenAPI.info).
+ *
+ * Jupiter, not JUnit 4: the net is JUnit 5 (the JUnit 4 API is not on the classpath). Basic auth: the
+ * app secures every path (unauthenticated -> 302 /login), and /v2/api-docs sits behind that same wall,
+ * so the descriptor is fetched WITH credentials, exactly as ActuatorEndpointCharacterizationTest does.
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@TestPropertySource(properties = {
+        "spring.security.user.name=probe",
+        "spring.security.user.password=probe-pw"
+})
+public class OpenApiDocsCharacterizationTest {
+
+    @Autowired
+    private TestRestTemplate restTemplate;
+
+    @Test
+    public void apiDocsDescriptorIsServedAndCarriesTheConfiguredTitle() {
+        ResponseEntity<String> response = restTemplate
+                .withBasicAuth("probe", "probe-pw")
+                .getForEntity("/v2/api-docs", String.class); // -> /v3/api-docs after the springdoc migration
+        assertEquals(200, response.getStatusCodeValue());
+        assertTrue(response.getBody().contains("My Product API"),
+                "expected the descriptor to carry the configured title, but was: " + response.getBody());
+    }
+}
+```
+
+```powershell
+mvn -q test "-Dtest=OpenApiDocsCharacterizationTest"   # GREEN on 2.5/springfox -> net is now 21
+# verified: Tests run: 1, Failures: 0, Errors: 0  (springfox served /v2/api-docs carrying "My Product API")
+```
+
+> If this red on the 2.5 baseline (e.g. springfox serves the descriptor at a different path, or the body
+> does not contain the title), **stop and adjust the test to the real springfox contract** before migrating —
+> the whole point is a *green-on-2.5* reference. Diagnose against the running app, do not assume.
+
+### 2. OpenRewrite advisor, then applier — under JDK 17
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+java -version    # expect: 17.0.x  (recipe runner only — NOT the gate JDK)
+
+# advisor: read the proposed diff, change nothing
+mvn org.openrewrite.maven:rewrite-maven-plugin:6.42.0:dryRun `
+  "-Drewrite.recipeArtifactCoordinates=org.openrewrite.recipe:rewrite-spring:6.33.0" `
+  "-Drewrite.activeRecipes=org.openrewrite.java.spring.boot2.UpgradeSpringBoot_2_6"
+
+# applier: accept the mechanical parent/property slice only
+mvn org.openrewrite.maven:rewrite-maven-plugin:6.42.0:run `
+  "-Drewrite.recipeArtifactCoordinates=org.openrewrite.recipe:rewrite-spring:6.33.0" `
+  "-Drewrite.activeRecipes=org.openrewrite.java.spring.boot2.UpgradeSpringBoot_2_6"
+```
+
+### 3. Hand-apply the moves the recipe does not own — train, springfox→springdoc, the `SwaggerConfig` rewrite
+
+```xml
+<!-- parent (recipe may already have done this) -->
+<version>2.6.15</version>   <!-- last 2.6.x; exact patch is this step's call -->
+
+<!-- train property: the LAST move of this target -->
+<spring-cloud.version>2021.0.9</spring-cloud.version>   <!-- Jubilee; serves Boot 2.6 AND 2.7 -->
+```
+
+```xml
+<!-- DELETE both springfox coordinates -->
+<dependency>
+    <groupId>io.springfox</groupId>
+    <artifactId>springfox-swagger2</artifactId>
+    <version>2.7.0</version>
+</dependency>
+<dependency>
+    <groupId>io.springfox</groupId>
+    <artifactId>springfox-swagger-ui</artifactId>
+    <version>2.7.0</version>
+</dependency>
+
+<!-- ADD springdoc-openapi (NOT BOM-managed -> explicit version; 1.6.x is the last Boot-2.x line.
+     springdoc 2.x is Boot-3/jakarta only and is out of scope until the next target). -->
+<dependency>
+    <groupId>org.springdoc</groupId>
+    <artifactId>springdoc-openapi-ui</artifactId>
+    <version>1.6.15</version>
+</dependency>
+```
+
+Rewrite `src/main/java/com/acme/myproduct/SwaggerConfig.java` from the springfox idiom to the springdoc one —
+**same title/description/version**, no `@Enable*` (springdoc auto-configures), default scan covers
+`HelloController` (which is in `com.acme.myproduct`):
+
+```java
+package com.acme.myproduct;
+
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.info.Info;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * springdoc-openapi configuration -- the live API-documentation surface of the service.
+ * Replaces the abandoned springfox 2.7.0 Docket/@EnableSwagger2 wiring (Step 16), which broke on
+ * Boot 2.6's PathPatternParser default and circular-reference prohibition. springdoc auto-configures
+ * the descriptor at /v3/api-docs and the UI at /swagger-ui.html; this bean only supplies the ApiInfo.
+ */
+@Configuration
+public class SwaggerConfig {
+
+    @Bean
+    public OpenAPI apiInfo() {
+        return new OpenAPI()
+                .info(new Info()
+                        .title("My Product API")
+                        .description("springdoc-openapi-generated OpenAPI 3 documentation for the my-product service.")
+                        .version("1.0.0"));
+    }
+}
+```
+
+> If preserving the springfox `basePackage("com.acme.myproduct")` *scoping* matters beyond the default
+> (it does not for this 2-class app — the only controller is already in that package), use a
+> `GroupedOpenApi` bean with `packagesToScan`. Not added here: it would be configurability that was not
+> requested (simplicity-first).
+
+### 4. Flip the pinned path, then gate — back on JDK 11
+
+In `OpenApiDocsCharacterizationTest`, make the one predicted change:
+
+```java
+// - rest.getForEntity("/v2/api-docs", String.class);   // springfox
+rest.getForEntity("/v3/api-docs", String.class);         // springdoc
+```
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-11.0.30'; $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+java -version    # expect: 11.0.x again — the gate JDK
+
+mvn dependency:tree -Dincludes=io.springfox:*,org.springdoc:*   # expect: NO io.springfox:*, springdoc PRESENT
+mvn clean test      # -> Tests run: 21, Failures: 0, Errors: 0  -> BUILD SUCCESS
+mvn clean package   # full repackage, 21/21 green
+```
+
+Read the **run count** first (`Tests run: 21` — the net grew by the new doc characterization): a
+`BUILD SUCCESS` with a *shrunken* run count is an empty or partly-discovered suite, not a pass.
+
+## Predictions to verify by the gate (not findings — §6 discipline)
+
+Each earns the word "finding" only if a stack trace (or a changed run count) confirms it:
+
+1. **springfox cannot reach 2.6 — confirmed mandatory, not optional.** If the migration is staged
+   incrementally, springfox on 2.6 throws either a `PathPatternParser`/`NullPointerException` in
+   `springfox.documentation.spring.web` *or* a `BeanCurrentlyInCreationException` from
+   `documentationPluginsBootstrapper` (circular-references now prohibited). *Predicted — this is the §6
+   springfox row finally biting; it is why the migration is in this hop and not deferred.*
+2. **springdoc serves the descriptor at `/v3/api-docs`.** The doc characterization flips from `/v2` to `/v3`
+   and stays green. *Predicted green — the migration's visible contract delta; the asserted behaviour
+   ("descriptor carries `My Product API`") is invariant.* (Note: springdoc may also require the descriptor
+   path to be permitted past the security wall — if `/v3/api-docs` reds with a 302/401 under the same basic
+   auth that worked for springfox, that is the finding, and the fix is a security-config permit, not a test
+   change.)
+3. **`management.info.env.enabled=false` may move `/actuator/info`.** `ActuatorEndpointCharacterizationTest`
+   is the oracle. *Predicted inert if it asserts only `/actuator/health` (Step 15's two assertions were
+   `/actuator/health` + root `/health` → 404, untouched by this flip); a finding to read if it touches
+   `info`.*
+4. **fabric8 K8s discovery on the 2021.0 train.** `spring-cloud-kubernetes-discovery:0.1.6` predates the
+   official module; the last train move is the most likely place an *un*-predicted red appears.
+   *Read the trace before reaching for any compatibility shim.*
+5. **Spring Boot Admin `2.0.6` on Boot 2.6 — now six minors behind.** §6: generation-locked, each minor a
+   fresh roll. *If context init throws a `de.codecentric…` `NoClassDefFound`, bump to a 2.6-generation Admin
+   and record as a finding.*
+6. **Resilience4j starter re-resolves on the 2021.0 circuitbreaker BOM.** Added with no `<version>` (Step
+   13), it now resolves through 2021.0's line. *Predicted green; confirm a resilience4j node still appears.*
+7. **commons-io / log4j-to-slf4j re-pin holds.** The 2.6 BOM re-pins both (Step 8 findings). *Predicted
+   green — `HelloControllerTest` (Tika `CloseShieldInputStream.wrap`) and `LoggingBackendProbeTest` are the
+   oracles; the `commons-io 2.13.0` pin and the `log4j-to-slf4j` exclusion stay as Step 8 set them.*
+8. **The Step 15 `spring-data-commons-core` drop stays clean.** Finding 15.1 was resolved by removing the
+   ancient pin (option 2); Boot 2.6's `RepositoryMetricsAutoConfiguration` still has no Spring Data API to
+   mis-trigger against. *Predicted green — the region that red at Step 15 should stay quiet.*
+
+## Step 16 — done criteria
+
+1. `mvn clean package` under **JDK 11** → BUILD SUCCESS, `mvn test` green **`Tests run: 21`**, Failures 0,
+   Errors 0; `<java.version>` still **`11`** (Java 17 deliberately not taken), namespace still `javax`.
+2. Parent is **`2.6.x`** and `spring-cloud.version` is **`2021.0.x`** (Jubilee) — the train's **last** move
+   of this target; it does not move again before Step 18.
+3. `dependency:tree` shows **no `io.springfox:*`** and **`org.springdoc:springdoc-openapi-ui`** present with
+   its explicit pin; `SwaggerConfig` is the springdoc `OpenAPI`-bean form, no `@EnableSwagger2`/`Docket`.
+4. `OpenApiDocsCharacterizationTest` is in the net (20 → 21), asserts `/v3/api-docs` serves a descriptor that
+   carries the title `My Product API`, and went **green on the 2.5 baseline first** (verified) — the migration
+   was graded, not blind. The path flipped `/v2` → `/v3`; the documented descriptor's title did not.
+5. The run count proves all tests are discovered (`Tests run: 21`). **The net is JUnit 5 Jupiter** — the new
+   test is Jupiter, matching the existing `@SpringBootTest` characterizations (Actuator, OAuth2) and the
+   already-Jupiter `CircuitBreakerFallbackCharacterizationTest`; the JUnit 4 API is not on the classpath.
+   *(This corrects the §10.1 "vintage-first" assumption: the repo's net migrated to Jupiter at/around Step 13.
+   See the note below — the Step 13/14/15 vintage narrative needs reconciling.)*
+6. Any generation-locked satellite bump forced by the gate (Admin, fabric8) is **recorded as a finding** with
+   its stack trace — not applied speculatively. No production behaviour changed — only the documentation
+   provider and its descriptor path.
+
+> **Cross-step correction — the net is Jupiter, not vintage JUnit 4 (surfaced while building this knot).**
+> Steps 13–15 of this document describe the net as "all JUnit-4 / vintage-first" and treat the explicit
+> `junit-vintage-engine` as Step 14's headline move. The **actual repo contradicts this**: there is no
+> `junit-vintage-engine` in `pom.xml`, the JUnit 4 API is not on the test classpath, and the net is entirely
+> JUnit 5 — `CircuitBreakerFallbackCharacterizationTest` was itself migrated to Jupiter at Step 13 (its
+> `// step 13:` import of `org.junit.jupiter.api.Test`). So this Step 16 knot is written in Jupiter by
+> necessity, not preference. **This does not change Step 16's outcome**, but the Step 13/14/15 vintage
+> narrative (and §10.1) is now stale and should be reconciled in a separate pass — the `junit-vintage-engine`
+> "headline" and "no test migrated to Jupiter" claims no longer match the code.
+
+## Rollback
+
+```powershell
+git restore --staged --worktree .
+git switch main
+git branch -D step16/boot-2.6-jubilee-springdoc
+```
+
+---
+
+## Toward Step 17 — the quiet landing onto Boot 2.7
+
+With springfox retired for `springdoc-openapi`, the train on its final stop (2021.0, Jubilee — which already
+serves Boot 2.7), and the doc surface now graded green, the second-heaviest set-piece is behind us. What
+remains of the Boot 2.x climb is a single quiet minor and the JDK capstone:
+
+- **Step 17 — Boot 2.6 → 2.7.x (train stays 2021.0).** A Step-15-shaped *restraint* hop: bump the parent
+  only, let the stationary 2021.0 BOM re-resolve, JDK still held at 11. Lands the platform on **Boot 2.7**,
+  the last stable `javax` plateau. The OAuth2 `302` re-architecture (§10.4) is slotted into 16–17 wherever it
+  least disturbs, gated by `OAuth2SecurityCharacterizationTest`.
+- **Step 18 — Java 11 → 17 on Boot 2.7.** The isolated JDK capstone (JEP 403 strong-encapsulation fallout
+  across BC/itext/the jaxb2 plugin/tika's shaded jars) — the end-state of this target: **Boot 2.7.x + Spring
+  Cloud 2021.0 + Java 17**, the full net green, leaving the Boot 3 + jakarta jump as *purely* a namespace
+  migration.
