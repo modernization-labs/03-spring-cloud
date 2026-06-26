@@ -1510,3 +1510,241 @@ remains of the Boot 2.x climb is a single quiet minor and the JDK capstone:
   across BC/itext/the jaxb2 plugin/tika's shaded jars) — the end-state of this target: **Boot 2.7.x + Spring
   Cloud 2021.0 + Java 17**, the full net green, leaving the Boot 3 + jakarta jump as *purely* a namespace
   migration.
+
+---
+
+# Modernization step 17 — the quiet landing onto Boot 2.7: Boot 2.6 → 2.7.x, train stays 2021.0, Java held at 11
+
+> **Status: DRAFT (planned, not yet executed).** This is the **fourth and last version hop** of the target
+> and, like Step 15, deliberately the **quietest**. It bumps the **Boot parent only**
+> (`2.6.15 → 2.7.x`); the **Spring Cloud train does _not_ move** — `2021.0 (Jubilee)` serves Boot 2.6
+> **and** 2.7, so `spring-cloud.version` stays `2021.0.9` (its last move of this target was already spent at
+> Step 16). Spring Framework stays **5.3** (same line), namespace stays **`javax`**, and the **JDK stays
+> 11** (§7 — held to the Step 18 capstone). The net stays the grader: **21/21 must remain green.** When this
+> hop lands, the platform sits on **Boot 2.7 — the last stable `javax` plateau** — with every coordinate but
+> the JDK already at the top of the 2.x line, leaving Step 18 a single isolated `11 → 17` move.
+>
+> **Precondition (verify before the baseline).** Step 16 landed the net at **21** (the new
+> `OpenApiDocsCharacterizationTest`). Confirm the baseline below reports `Tests run: 21` on Boot 2.6.15
+> before moving — and note the **corrected net reality** Step 16 surfaced (its closing cross-step note): the
+> net is **entirely JUnit 5 (Jupiter)**, there is **no `junit-vintage-engine` in `pom.xml`** (verified — the
+> dependency list carries none), and the JUnit 4 API is not on the test classpath. The Step 13/14/15
+> "vintage-first / explicit vintage engine" narrative is **stale**; Step 17 does not repeat it. The
+> run-count discipline still holds for a different reason — a Jupiter `@SpringBootTest` whose context fails
+> to load reports errors, not a silently-empty suite, so read `Tests run: 21` *and* `Failures/Errors: 0`.
+
+## Guiding principle — restraint, again, on the same stationary train
+
+Step 16 was the second-heaviest set-piece (springfox → springdoc, plus the train's last move). Step 17 is
+its opposite: **no removed train, no removed default, no re-architecture, no new characterization.** It is
+the Step-15 shape exactly — bump one coordinate (the parent), let the **same 2021.0 BOM** re-resolve
+everything under the new Boot minor, and **leave the JDK at 11** even though 2.7 has long since made Java 17
+solid. The value of the hop is the **graded proof** that Boot 2.7 alone — under a train that does not move —
+disturbs nothing the net covers. Boot 2.7 is, by reputation, the gentlest minor of the 2.x line (its big
+event, the `spring.factories` → `AutoConfiguration.imports` autoconfig relocation, is a **library-author**
+concern that surfaces only as deprecation logs for a consumer like this app). So restraint is not just a
+posture here; it is what the hop *is*.
+
+## The OAuth2 `302` re-architecture — the §7/§10.4 planning decision, resolved here (and resolved as: *not in this hop*)
+
+§7 left the EOL `spring-security-oauth2` `302` re-architecture as "a planning decision for whichever hop it
+least disturbs," and the "Toward" notes narrowed the window to **16 or 17**. Step 16 did not take it; Step
+17 is the last hop in that window, so the decision is made **now** — and the decision is **to keep Step 17 a
+pure restraint bump and _not_ couple the OAuth2 re-architecture into it.** The reasoning is grounded in the
+live tree, not preference:
+
+1. **The OAuth2/`302` surface is _deps-only_ — the same shape as the Hystrix surface (Step 12a).** A read of
+   `src/main` shows **exactly three classes** — `HelloApplication`, `HelloController`, `SwaggerConfig` — and
+   **no `WebSecurityConfigurerAdapter`, no `@EnableResourceServer`/`@EnableAuthorizationServer`, no
+   `SecurityConfig`, no OAuth2 wiring at all.** The `302 → /login` wall is **pure Spring Security default
+   autoconfig**; `spring-security-oauth2:2.0.16.RELEASE` and `spring-security-jwt:1.0.9.RELEASE` are EOL
+   **classpath weight** with no live consumer in `src`. As with Hystrix, there is **no live OAuth2 behaviour
+   to re-architect** — only coordinates and the autoconfigured challenge contract.
+2. **Nothing in the 2.6 → 2.7 bump _forces_ the re-architecture.** The forcing function for retiring
+   `spring-security-oauth2` is **Boot 3 / jakarta** (where `spring-security-oauth2-autoconfigure` is gone) —
+   a **next-target** event. On Boot 2.7 + `javax`, the EOL module still resolves and the `302` contract still
+   holds. Taking the re-arch *here* would be re-architecting ahead of any version that demands it —
+   manufacturing scope into the quiet landing, the precise inverse of restraint.
+3. **Neither neighbour is a good host.** Coupling a behaviour-bearing security re-arch into **this quiet
+   parent bump** would destroy the "what does Boot 2.7 alone change?" isolation; coupling it into **Step 18**
+   would fuse it with the JEP 403 JDK capstone — two unrelated behaviour-bearing moves in one gate, exactly
+   the coupling the methodology forbids.
+
+**Decision (recorded, consistent with §10.4 "inside the walk"):** the OAuth2 `302` re-architecture is **its
+own separately-gated sub-hop on the landed Boot 2.7 plateau** — provisionally **Step 17a**, mirroring the
+Step 12a → 13 pattern (it already *has* its green oracle, `OAuth2SecurityCharacterizationTest`, so no
+net-widen is owed first) — taken **after** Step 17 lands 2.7 and **before** the Step 18 JDK capstone, on a
+single JDK (Java 11), with no Boot/train/JDK move. Its exact decomposition (whether it retires the EOL
+module outright, what challenge contract the test then asserts — keep `302`, or restore an API-style `401`)
+is that sub-hop's own up-front analysis, not this one's. **Step 17 itself touches no security coordinate**;
+`OAuth2SecurityCharacterizationTest` rides through unchanged as one of the 21 graders, and its `302`
+assertions must stay green across the parent bump.
+
+## The train stays put — what that simplifies (as Step 15)
+
+Step 16 moved parent **and** train together (2.6 left 2020.0 for 2021.0). Step 17 does not: **`2021.0`
+serves Boot 2.6 _and_ 2.7**, so `spring-cloud.version` is untouched. The whole Spring-Cloud surface —
+OpenFeign, the Resilience4j circuit-breaker starter (Step 13, BOM-managed, no pin), fabric8 K8s discovery —
+re-resolves against the **same** 2021.0 BOM it already resolved against at Step 16. The bootstrap-off default
+(a 2020.0 event, crossed at Step 14) does not re-trigger. **The only moving part is the Boot 2.7 BOM
+re-pin.**
+
+## The mechanical layer — OpenRewrite `UpgradeSpringBoot_2_7`, same JDK-17 detour
+
+As at Steps 14–16, the layer-1 advisor returns: `org.openrewrite.java.spring.boot2.UpgradeSpringBoot_2_7`,
+run **advisor-then-applier** under **JDK 17** (the recipe runner only), then `JAVA_HOME` switched **back to
+11** for the gate. The recipe owns the mechanical parent/property slice; the train property (unchanged here)
+and any generation-locked satellite bump are hand-applied and recorded as findings. Use the same plugin /
+recipe-artifact form Steps 14–16 settled — the recipe lives in **`rewrite-spring`**.
+
+> **Confirm the JDK before diagnosing anything (Step 8 "Finding 0").** The OpenRewrite run is the only
+> JDK-17 touch; the **gate runs on Java 11**. The standing temptation is sharpest on *this* hop: Boot 2.7
+> fully supports Java 17, so seeing the recipe run green under 17 invites leaving `JAVA_HOME` there for the
+> gate. Don't — Java 17 is held to Step 18 **by decision, not by inability**, so the JDK stays one fixed
+> value across every Boot hop and the `11 → 17` move is the single isolated capstone.
+
+## What Step 17 changes — the parent, and nothing else by intent
+
+| Layer | Change | Applied by | Guarded by |
+|---|---|---|---|
+| 1. OpenRewrite (advisor→applier) | run `UpgradeSpringBoot_2_7` under JDK 17 — `dryRun` then `run`; accept only the mechanical parent/property slice | recipe, reviewed | the diff is read before `run`; gate re-runs on JDK 11 |
+| 4. pom — parent | `spring-boot-starter-parent` `2.6.15` → **`2.7.x`** (last 2.7 patch) | recipe or by hand | net stays 21/21 on JDK 11 |
+| — train | **no change** — `2021.0.9` serves Boot 2.7 too (its last move was Step 16) | — | `dependency:tree` re-resolves under the same train |
+| — JDK | **no change** — `<java.version>` stays `11` though Boot 2.7 fully supports 17 (§7) | — | gate runs on JDK 11; Java 17 deferred to Step 18 |
+| — security | **no change** — OAuth2 `302` re-arch deferred to its own gated sub-hop (Step 17a, above) | — | `OAuth2SecurityCharacterizationTest` rides through unchanged, `302` green |
+| 4. pom — satellites (only if the gate demands) | bump generation-locked libs the gate reds — first candidates `spring-boot-admin-starter-client 2.0.6` (§6, now seven minors behind) and `springdoc-openapi-ui 1.5.13` (1.5.x targets Boot 2.4/2.5; 2.7 may want a 1.6.x/1.7.x last-Boot-2.x line) | by hand, **as a finding** | `@SpringBootTest` context init green; `OpenApiDocsCharacterizationTest` green |
+
+No namespace change (`javax`), no production code.
+
+## Step 17 — exact actions (proposed)
+
+From the project root.
+
+### 0–1. Branch and baseline (JDK 11)
+
+```powershell
+git switch -c step17/boot-2.7
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-11.0.30'; $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+java -version    # expect: 11.0.x
+mvn -q test      # existing net GREEN first on 2.6.15/2021.0/Java 11 — confirm "Tests run: 21", Failures/Errors 0
+```
+
+### 2. OpenRewrite advisor, then applier — under JDK 17
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-17.0.18'; $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+java -version    # expect: 17.0.x  (recipe runner only — NOT the gate JDK)
+
+# advisor: read the proposed diff, change nothing
+mvn org.openrewrite.maven:rewrite-maven-plugin:6.42.0:dryRun `
+  "-Drewrite.recipeArtifactCoordinates=org.openrewrite.recipe:rewrite-spring:6.33.0" `
+  "-Drewrite.activeRecipes=org.openrewrite.java.spring.boot2.UpgradeSpringBoot_2_7"
+
+# applier: accept the mechanical parent/property slice
+mvn org.openrewrite.maven:rewrite-maven-plugin:6.42.0:run `
+  "-Drewrite.recipeArtifactCoordinates=org.openrewrite.recipe:rewrite-spring:6.33.0" `
+  "-Drewrite.activeRecipes=org.openrewrite.java.spring.boot2.UpgradeSpringBoot_2_7"
+```
+
+### 3. Hand-apply / confirm the parent (recipe may already have done it); train and JDK unchanged
+
+```xml
+<!-- parent -->
+<version>2.7.18</version>   <!-- last 2.7.x; exact patch is this step's call -->
+
+<!-- train property: UNCHANGED — 2021.0 serves Boot 2.7 (its last move was Step 16) -->
+<spring-cloud.version>2021.0.9</spring-cloud.version>
+
+<!-- JDK: UNCHANGED — held at 11 by decision (§7), though Boot 2.7 fully supports 17 -->
+<java.version>11</java.version>
+```
+
+### 4. Gate — back on JDK 11
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-11.0.30'; $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+java -version    # expect: 11.0.x again — the gate JDK
+
+mvn clean test      # -> Tests run: 21, Failures: 0, Errors: 0  -> BUILD SUCCESS
+mvn clean package   # full repackage, 21/21 green
+```
+
+Read the **run count** first (`Tests run: 21`): a `BUILD SUCCESS` with a *shrunken* run count or any
+`Errors` is a context-load failure to diagnose, not a pass.
+
+## Predictions to verify by the gate (not findings — §6 discipline)
+
+Each earns the word "finding" only if a stack trace (or a changed run count) confirms it on the gate:
+
+1. **Boot 2.7 is the gentlest minor — context loads unchanged.** The headline 2.7 event
+   (`spring.factories` → `META-INF/spring/…AutoConfiguration.imports`) is a library-author migration that
+   surfaces to a consumer only as **deprecation logs**, not failures. *Predicted green; any `spring.factories`
+   deprecation WARN is a log, not a finding.*
+2. **`springdoc-openapi-ui 1.5.13` may be marginal on Boot 2.7.** The landed pin (1.5.13) targets the Boot
+   2.4/2.5 line; it was green on 2.6.15 (Step 16) but 2.7 is a minor further on. *Most likely place an
+   un-predicted red appears — `OpenApiDocsCharacterizationTest` (`/v3/api-docs` carries `My Product API`) is
+   the oracle; if it reds, bump springdoc to the last Boot-2.x line (1.6.x/1.7.x) and record as a finding.
+   springdoc 2.x is Boot-3/jakarta and stays out of scope.*
+3. **Spring Security 5.7 deprecates `WebSecurityConfigurerAdapter` — inert here.** Boot 2.7 ships Spring
+   Security 5.7, whose marquee change is the `WebSecurityConfigurerAdapter` deprecation. The app has **no
+   security config** (verified — the `302` wall is pure default autoconfig), so there is nothing to
+   deprecate. *Predicted green — `OAuth2SecurityCharacterizationTest`'s three `302`/`200` assertions ride
+   through unchanged.*
+4. **Spring Boot Admin `2.0.6` on Boot 2.7 — now seven minors behind.** §6: generation-locked, each minor a
+   fresh roll; it has survived 2.0 → 2.6. *If context init throws a `de.codecentric…` `NoClassDefFound`,
+   bump to a 2.7-generation Admin and record as a finding.*
+5. **fabric8 K8s discovery and MQ autoconfig.** Train unchanged (2021.0) so no new Spring-Cloud friction; the
+   only variable is the Boot 2.7 BOM. *Predicted green; the bootstrap-off concern was a 2020.0 event crossed
+   at Step 14, and the 2021.0 move was crossed at Step 16.*
+6. **commons-io / log4j-to-slf4j re-pin holds.** The 2.7 BOM re-pins both (Step 8 findings). *Predicted
+   green — `HelloControllerTest` (Tika `CloseShieldInputStream.wrap`) and `LoggingBackendProbeTest` are the
+   oracles; the `commons-io 2.13.0` pin and the `log4j-to-slf4j` exclusion stay as Step 8 set them.*
+7. **Resilience4j starter re-resolves on the (stationary) 2021.0 circuitbreaker BOM.** Added with no
+   `<version>` (Step 13). *Predicted green; confirm a resilience4j node still appears in the tree.*
+8. **`spring-boot-properties-migrator` (still on `runtime`) logs any 2.6 → 2.7 rename.** The transitional
+   migrator is still present; it is the oracle for any property the 2.7 BOM renames. *Predicted quiet for a
+   hello app; a logged rename is information, not a finding.*
+
+## Step 17 — done criteria
+
+1. `mvn clean package` under **JDK 11** → BUILD SUCCESS, `mvn test` green **`Tests run: 21`**, Failures 0,
+   Errors 0; `<java.version>` still **`11`** (Java 17 deliberately **not** taken), namespace still `javax`.
+2. Parent is **`2.7.x`**; `spring-cloud.version` is **unchanged at `2021.0.9`** (the train did not move — its
+   last move was Step 16). Spring Framework is **5.3**.
+3. **No security coordinate changed** — the OAuth2 `302` re-architecture is deferred to its own gated sub-hop
+   (Step 17a), and `OAuth2SecurityCharacterizationTest` stays green with its `302`/`200` assertions intact.
+   The decision and its rationale (deps-only surface, Boot-3 forcing function, restraint) are recorded above.
+4. The net is **JUnit 5 (Jupiter)** throughout; **no `junit-vintage-engine`** is added or expected (the Step
+   13/14/15 vintage narrative is stale, per Step 16's cross-step correction). The run count proves all 21
+   tests are discovered and pass.
+5. Any generation-locked satellite bump forced by the gate (Admin or springdoc first) is **recorded as a
+   finding** with its stack trace — not applied speculatively. No production code added.
+6. The JDK-held decision is recorded explicitly: Boot 2.7 fully supports Java 17, and this hop declines it on
+   purpose (§7), so the JDK stays one fixed value through to the Step 18 capstone.
+
+## Rollback
+
+```powershell
+git restore --staged --worktree .
+git switch main
+git branch -D step17/boot-2.7
+```
+
+---
+
+## Toward Step 17a / Step 18 — the OAuth2 sub-hop, then the JDK capstone
+
+With Boot 2.7 landed, the platform rests on the **last stable `javax` plateau**: every coordinate but the
+JDK is at the top of the 2.x line, the train is on its final stop (2021.0, Jubilee), and the net is green at
+21/21. Two moves remain to close the target:
+
+- **Step 17a — OAuth2 `302` re-architecture off the EOL `spring-security-oauth2` module** (its own gate, no
+  Boot/train/JDK move, on Java 11). Resolved above as a deferral *out* of Step 17: a deps-only surface whose
+  only forcing function is Boot 3 / jakarta, taken now — on the green 2.7 plateau — to keep the next target a
+  *pure* namespace migration. Gated by `OAuth2SecurityCharacterizationTest`; its decomposition (retire the
+  EOL coordinates; keep the `302` contract or restore an API-style `401`) is that hop's own up-front
+  analysis.
+- **Step 18 — Java 11 → 17 on Boot 2.7.** The isolated JDK capstone (JEP 403 strong-encapsulation fallout
+  across BC/itext/the jaxb2 plugin/tika's shaded jars) — the end-state of this target: **Boot 2.7.x + Spring
+  Cloud 2021.0 + Java 17**, the full net green, leaving the Boot 3 + jakarta jump as *purely* a namespace
+  migration.
